@@ -466,12 +466,16 @@ def _query_ticket_price_internal(from_station_name, to_station_name, tg_inline_m
                     elif info[0] == "ServiceExtend":
                         output_text += "【延長服務】"
                         output_text += info[1]+"\n"
-                        output_text += info[3].replace("<p>","").replace("</p>","")+"\n"
+                        if info[3] != "":
+                            output_text += info[3]+"\n"
+                    elif info[5] == "LateCert":
+                        #延误通知书不输出
+                        continue
                     else:
                         output_text += "【通知】"
                         output_text += info[1]+"\n"
-                        output_text += info[3].replace("<p>","").replace("</p>","")+"\n"
-
+                        if info[3] != "":
+                            output_text += info[3]+"\n"
                     output_text += "\n"
             elif lang == "E":
                 # output_text += "\n[Special Arrangement]\n"
@@ -482,11 +486,15 @@ def _query_ticket_price_internal(from_station_name, to_station_name, tg_inline_m
                     elif info[0] == "ServiceExtend":
                         output_text += "[Service Extention]"
                         output_text += info[2] +"\n"
-                        output_text += info[4].replace("<p>","").replace("</p>","")+"\n"
+                        if info[4] != "":
+                            output_text += info[4]+"\n"
+                    elif info[5] == "LateCert":
+                        continue
                     else:
                         output_text += "[Notice]"
-                        output_text += info[2]
-                        output_text += info[4].replace("<p>","").replace("</p>","")+"\n"
+                        output_text += info[2] +"\n"
+                        if info[4] != "":
+                            output_text += info[4]+"\n"
                         
                     output_text += "\n"
 
@@ -830,9 +838,31 @@ def get_typhoon_info():
     
     service_info = []
     for info in typhoon_info:
+        #跳过延误通知书
+        if info['newsType'] == "LateCert":
+            continue
+
+        # alertContent有时候会是html,正好有个现成的BeautifulSoup做解析
+        contentTcParsed = ""
+        contentTc = BeautifulSoup(info['alertContentTc'], "html.parser")
+        if "message-content" in info['alertContentTc']:
+            #如果MTR喜欢贴html,那找到<p id='message-content'>的内容提取出来就行
+            #不然你要是把下面的表格也贴了那就是灾难了.jpg
+            contentTcParsed = contentTc.find("p", {"id":"message-content"}).get_text().strip()
+        else:
+            #有时候MTR喜欢只贴个<p>或者直接不贴，这时候直接提取内容就行
+            contentTcParsed = contentTc.get_text().strip()
+
+        contentEnParsed = ""
+        contentEn = BeautifulSoup(info['alertContent'], "html.parser")
+        if "message-content" in info['alertContent']:
+            contentEnParsed = contentEn.find("p", {"id":"message-content"}).get_text().strip()
+        else:
+            contentEnParsed = contentEn.get_text().strip()
+        
         service_info.append([info['tsiType']
             ,info['alertTitleTc'],info['alertTitle']
-            ,info['alertContentTc'],info['alertContent']])
+            ,contentTcParsed,contentEnParsed,info['newsType']])
 
     return service_info
     
