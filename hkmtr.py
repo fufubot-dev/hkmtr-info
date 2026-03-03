@@ -466,12 +466,16 @@ def _query_ticket_price_internal(from_station_name, to_station_name, tg_inline_m
                     elif info[0] == "ServiceExtend":
                         output_text += "【延長服務】"
                         output_text += info[1]+"\n"
-                        output_text += info[3].replace("<p>","").replace("</p>","")+"\n"
+                        if info[3] != "":
+                            output_text += info[3]+"\n"
+                    elif info[5] == "LateCert":
+                        #延误通知书不输出
+                        continue
                     else:
                         output_text += "【通知】"
                         output_text += info[1]+"\n"
-                        output_text += info[3].replace("<p>","").replace("</p>","")+"\n"
-
+                        if info[3] != "":
+                            output_text += info[3]+"\n"
                     output_text += "\n"
             elif lang == "E":
                 # output_text += "\n[Special Arrangement]\n"
@@ -482,11 +486,15 @@ def _query_ticket_price_internal(from_station_name, to_station_name, tg_inline_m
                     elif info[0] == "ServiceExtend":
                         output_text += "[Service Extention]"
                         output_text += info[2] +"\n"
-                        output_text += info[4].replace("<p>","").replace("</p>","")+"\n"
+                        if info[4] != "":
+                            output_text += info[4]+"\n"
+                    elif info[5] == "LateCert":
+                        continue
                     else:
                         output_text += "[Notice]"
-                        output_text += info[2]
-                        output_text += info[4].replace("<p>","").replace("</p>","")+"\n"
+                        output_text += info[2] +"\n"
+                        if info[4] != "":
+                            output_text += info[4]+"\n"
                         
                     output_text += "\n"
 
@@ -568,27 +576,21 @@ def get_exchange_rate_info(cache_file="octopus_exchange_rate.json"):
             raise Exception(f"無法獲取最新匯率，且沒有本地緩存可用: {e}")
 
 def format_adult_price_zh(adult_price, rmb_to_hkd_rate, fare_title):
+    """HKD / rmb_to_hkd_rate = 大陆交通联合卡在港实际支付的人民币金额"""
     try:
-        # 尝试将成人票价转换为数字
         price_float = float(adult_price)
-        
-        # 如果是浮动数字，按照汇率转换成人民币
         rmb_price = round(price_float / rmb_to_hkd_rate, 2)
         return f"成人票價：HK$ {adult_price} (CN¥{rmb_price})"
     except ValueError:
-        # 如果无法转换为浮动数字（即可能是字符串或奇怪字符），直接返回原始票价
         return f"成人票價：{adult_price}"
 
 def format_adult_price_en(adult_price, rmb_to_hkd_rate, fare_title):
+    """HKD / rmb_to_hkd_rate = CNY cost for T-Union card holders in HK"""
     try:
-        # 尝试将成人票价转换为数字
         price_float = float(adult_price)
-        
-        # 如果是浮动数字，按照汇率转换成人民币
         rmb_price = round(price_float / rmb_to_hkd_rate, 2)
         return f"Adult Price: HK$ {adult_price} (Approx. CN¥{rmb_price})"
     except ValueError:
-        # 如果无法转换为浮动数字（即可能是字符串或奇怪字符），直接返回原始票价
         return f"Adult Price: {adult_price}"
 
 def format_student_price_zh(student_price):
@@ -745,7 +747,8 @@ def print_train_arrival_info(from_station_id,lang):
 def print_ticket_prices(ticket_prices,lang):
     output_text = ""
 
-    exchange_info = get_exchange_rate_info()  # 获取最新汇率和更新时间
+    exchange_info = get_exchange_rate_info()
+    # 大陆交通联合卡在港刷：1 CNY = rmb_to_hkd HKD，票价 HKD/rmb_to_hkd = CNY
     rmb_to_hkd = exchange_info["rmb_to_hkd"]
 
     if lang == "C":
@@ -805,11 +808,21 @@ def print_misc_info(lang):
     hkd_to_rmb = exchange_info["hkd_to_rmb"]
 
     if lang == "C":
-        output_text += f"【匯率參考】\n港幣兌人民幣: {hkd_to_rmb}\n人民幣兌港幣: {rmb_to_hkd}\n更新時間:" + exchange_info["fetch_time"]
-        # output_text += get_common_notice_zh(hkd_to_rmb, rmb_to_hkd, exchange_info["fetch_time"])
+        output_text += (
+            f"【匯率參考】\n"
+            f"八達通於大陸使用（港幣→人民幣）: 1 HKD = {hkd_to_rmb} CNY\n"
+            f"交通聯合於香港使用（人民幣→港幣）: 1 CNY = {rmb_to_hkd} HKD\n"
+            f"（以上為八達通公司牌價，非市場匯率）\n"
+            f"更新時間: {exchange_info['fetch_time']}"
+        )
     elif lang == "E":
-        output_text += f"[Exchange Rate]\nHKD->CNY: {hkd_to_rmb}\nCNY->HKD: {rmb_to_hkd}\nLast Update:" + exchange_info["fetch_time"]
-        # output_text += get_common_notice_en(hkd_to_rmb, rmb_to_hkd, exchange_info["fetch_time"])
+        output_text += (
+            f"[Exchange Rate]\n"
+            f"Octopus in Mainland (HKD→CNY): 1 HKD = {hkd_to_rmb} CNY\n"
+            f"T-Union in HK (CNY→HKD): 1 CNY = {rmb_to_hkd} HKD\n"
+            f"(Octopus card rates, not market rates)\n"
+            f"Last Update: {exchange_info['fetch_time']}"
+        )
 
     return output_text
 
@@ -830,13 +843,37 @@ def get_typhoon_info():
     
     service_info = []
     for info in typhoon_info:
+        #跳过延误通知书
+        if info['newsType'] == "LateCert":
+            continue
+
+        contentTcParsed = parseAlertMessage(info['alertContentTc'])
+        contentEnParsed = parseAlertMessage(info['alertContent'])
         service_info.append([info['tsiType']
             ,info['alertTitleTc'],info['alertTitle']
-            ,info['alertContentTc'],info['alertContent']])
+            ,contentTcParsed,contentEnParsed,info['newsType']])
 
     return service_info
     
+def parseAlertMessage(alertContent: str):
+    outMsg = ""
 
+    # alertContent有时候会是html,正好有个现成的BeautifulSoup做解析
+    if "<p" in alertContent:
+        #如果MTR喜欢贴html,那就作为html解析，找到<p id='message-content'>的内容提取出来就行
+        #不然你要是把下面的表格也贴了那就是灾难了.jpg
+
+        #8.15 <p style="text-align: justify;"> <table style="border-collapse: collapse;
+        #针对MTR连id='message-content'都懒得给了的情况，直接提取<p>
+        contentHTML = BeautifulSoup(alertContent, "html.parser")
+        MsgContent = contentHTML.find_all("p")
+        if MsgContent is not None:
+            for msg in MsgContent:
+                outMsg += msg.get_text().strip() + "\n"
+    else:
+        outMsg = alertContent
+
+    return outMsg.strip()
 
 # # 如果直接调用这个文件，就会执行下面的代码
 # if __name__ == "__main__":
